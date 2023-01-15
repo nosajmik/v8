@@ -497,6 +497,10 @@ namespace internal {
   F(ConstructThinString, 1, 1)                \
   F(CurrentFrameIsTurbofan, 0, 1)             \
   F(DebugPrint, 1, 1)                         \
+  F(QOSClassUserInteractive, 0, 1)            \
+  F(QOSClassUserInitiated, 0, 1)              \
+  F(QOSClassUtility, 0, 1)                    \
+  F(QOSClassBackground, 0, 1)                 \
   F(DebugPrintPtr, 1, 1)                      \
   F(DebugTrace, 0, 1)                         \
   F(DebugTrackRetainingPath, -1, 1)           \

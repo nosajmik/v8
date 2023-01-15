@@ -1133,6 +1133,30 @@ RUNTIME_FUNCTION(Runtime_DebugPrint) {
   return args[0];
 }
 
+RUNTIME_FUNCTION(Runtime_QOSClassUserInteractive) {
+  int ret = pthread_set_qos_class_self_np(qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0);
+  fprintf(stderr, "QoS to USER_INTERACTIVE returned %d\n", ret);
+  return Object();
+}
+
+RUNTIME_FUNCTION(Runtime_QOSClassUserInitiated) {
+  int ret = pthread_set_qos_class_self_np(qos_class_t::QOS_CLASS_USER_INITIATED, 0);
+  fprintf(stderr, "QoS to USER_INITIATED returned %d\n", ret);
+  return Object();
+}
+
+RUNTIME_FUNCTION(Runtime_QOSClassUtility) {
+  int ret = pthread_set_qos_class_self_np(qos_class_t::QOS_CLASS_UTILITY, 0);
+  fprintf(stderr, "QoS to UTILITY returned %d\n", ret);
+  return Object();
+}
+
+RUNTIME_FUNCTION(Runtime_QOSClassBackground) {
+  int ret = pthread_set_qos_class_self_np(qos_class_t::QOS_CLASS_BACKGROUND, 0);
+  fprintf(stderr, "QoS to BACKGROUND returned %d\n", ret);
+  return Object();
+}
+
 RUNTIME_FUNCTION(Runtime_DebugPrintPtr) {
   SealHandleScope shs(isolate);
   StdoutStream os;
