@@ -1185,6 +1185,7 @@ RUNTIME_FUNCTION(Runtime_TimeLoad) {
   uint32_t hi = NumberToUint32(args[0]);
   uint32_t lo = NumberToUint32(args[1]);
   uint64_t ptr = (static_cast<uint64_t>(hi) << 32) | lo;
+  fprintf(stderr, "Reconstructed pointer: %p\n", ptr);
 
   // Chromium MUST BE RUN AS ROOT for this to work.
   const char *kperf_path = "/System/Library/PrivateFrameworks/kperf.framework/Versions/A/kperf";
