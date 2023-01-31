@@ -1220,6 +1220,10 @@ RUNTIME_FUNCTION(Runtime_TimeLoad) {
   kpc_get_thread_counters(0, ARRAY_SIZE(counters_before), counters_before);
   asm volatile ("isb sy");
 
+  // Target access
+  *(volatile char *) ptr;
+  asm volatile("dsb ish"); // lfence
+
   // Timestamp 2
   asm volatile ("isb sy");
   kpc_get_thread_counters(0, ARRAY_SIZE(counters_after), counters_after);
