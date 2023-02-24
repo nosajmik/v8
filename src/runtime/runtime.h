@@ -502,6 +502,8 @@ namespace internal {
   F(QOSClassUtility, 0, 1)                    \
   F(QOSClassBackground, 0, 1)                 \
   F(TimeLoad, 2, 1)                           \
+  F(AddressOfArray, -1, 1)                    \
+  F(timeWasmMemAccessM1, 2, 1)                \
   F(DebugPrintPtr, 1, 1)                      \
   F(DebugTrace, 0, 1)                         \
   F(DebugTrackRetainingPath, -1, 1)           \

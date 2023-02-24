@@ -35,6 +35,8 @@
 #include "src/regexp/regexp.h"
 #include "src/snapshot/snapshot.h"
 #include "src/web-snapshot/web-snapshot.h"
+#include "src/init/v8.h"
+#include "include/v8.h"
 
 #ifdef V8_ENABLE_MAGLEV
 #include "src/maglev/maglev.h"
@@ -1250,6 +1252,95 @@ RUNTIME_FUNCTION(Runtime_DebugPrintPtr) {
   }
   // We don't allow the converted pointer to leak out to JavaScript.
   return args[0];
+}
+
+RUNTIME_FUNCTION(Runtime_AddressOfArray) {
+  HandleScope hs(isolate);
+  StdoutStream os;
+
+  MaybeObject maybe_object(*args.address_of_arg_at(0));
+  Object object = maybe_object.GetHeapObjectOrSmi();
+  void* data_pointer = JSTypedArray::cast(object).DataPtr();
+
+  std::ostringstream stream;
+  stream << data_pointer;
+  std::string data_pointer_string = stream.str();
+  // os << "[Original Pointer] " << data_pointer_string << "\n";
+
+  data_pointer_string = data_pointer_string.substr(2, data_pointer_string.size() - 2);
+
+  long number = stol(data_pointer_string, nullptr, 16);
+
+
+  Handle<v8::internal::Object> number_handle = isolate->factory()->NewNumber(number);
+  
+  return *number_handle;
+}
+
+RUNTIME_FUNCTION(Runtime_timeWasmMemAccessM1) {
+  DCHECK_EQ(2, args.length());
+  HandleScope scope(isolate);
+  // Snapshot::SerializeDeserializeAndVerifyForTesting(isolate,
+                                                    // isolate->native_context());
+  
+  // Get the data pointer of the DataView arg.
+  MaybeObject maybe_object(*args.address_of_arg_at(0));
+  Object object = maybe_object.GetHeapObjectOrSmi();
+  void* data_pointer = JSTypedArray::cast(object).DataPtr();
+  fprintf(stderr, "Data pointer at %p\n", data_pointer);
+
+  // Convert offset to a number.
+  uint32_t offset = NumberToUint32(args[1]);
+
+  // Convert the Smis to a pointer.
+  volatile char *ptr = (volatile char *)data_pointer + offset;
+  fprintf(stderr, "Timing offset %d at %p\n", offset, ptr);
+
+  // Chromium MUST BE RUN AS ROOT for this to work.
+  const char *kperf_path = "/System/Library/PrivateFrameworks/kperf.framework/Versions/A/kperf";
+  void *kperf_lib = NULL;
+  int (*kpc_get_thread_counters)(int, unsigned, uint64_t *) = NULL;
+
+  // The array size is the size of the entire array divided by the size of the
+  // first element, i.e. this macro expands to the number of elements in the
+  // array.
+  #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
+
+  // We cannot open the KPC API provided by the kernel ourselves directly.
+	// Instead we rely on the kperf framework which is entitled to access
+	// this API.
+	kperf_lib = dlopen(kperf_path, RTLD_LAZY);
+
+  if (!kperf_lib) {
+    return ReadOnlyRoots(isolate).undefined_value();
+  }
+
+  // Look up kpc_get_thread_counters.
+  // Need to do some casting here because compiler will complain about
+  // assigning void pointer to function pointer
+	*(void **)(&kpc_get_thread_counters) = dlsym(kperf_lib, "kpc_get_thread_counters");
+
+  // Storage space for performance counters on two timestamps.
+  // Read with serialization on both sides.
+	uint64_t counters_before[10];
+  uint64_t counters_after[10];
+
+  // Timestamp 1
+  asm volatile ("isb sy");
+  kpc_get_thread_counters(0, ARRAY_SIZE(counters_before), counters_before);
+  asm volatile ("isb sy");
+
+  // Target access
+  *(volatile char *) ptr;
+  asm volatile("dsb ish"); // lfence
+
+  // Timestamp 2
+  asm volatile ("isb sy");
+  kpc_get_thread_counters(0, ARRAY_SIZE(counters_after), counters_after);
+  asm volatile ("isb sy");
+
+  uint64_t dt = counters_after[2] - counters_before[2];
+  return Smi::FromInt(dt);
 }
 
 RUNTIME_FUNCTION(Runtime_PrintWithNameForAssert) {
