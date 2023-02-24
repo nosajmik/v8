@@ -5089,9 +5089,15 @@ template <typename Impl>
 typename ParserBase<Impl>::ExpressionT ParserBase<Impl>::ParseV8Intrinsic() {
   // CallRuntime ::
   //   '%' Identifier Arguments
+  // nosajmik: add support for "%." for wasm_bindgen's js_namespace 
 
   int pos = peek_position();
   Consume(Token::MOD);
+  // nosamik: need to peek and consume based on that to 
+  // prevent rendering process from crashing
+  if (peek() == Token::PERIOD) {
+    Consume(Token::PERIOD);
+  }
   // Allow "eval" or "arguments" for backward compatibility.
   IdentifierT name = ParseIdentifier();
   if (peek() != Token::LPAREN) {
