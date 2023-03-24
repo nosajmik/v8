@@ -1219,13 +1219,14 @@ RUNTIME_FUNCTION(Runtime_TimeLoad) {
   uint64_t counters_after[10];
 
   // Timestamp 1
+  asm volatile ("dsb ish"); // lfence, prevent reordering with earlier evset traversal
   asm volatile ("isb sy");
   kpc_get_thread_counters(0, ARRAY_SIZE(counters_before), counters_before);
   asm volatile ("isb sy");
 
   // Target access
   *(volatile char *) ptr;
-  asm volatile("dsb ish"); // lfence
+  asm volatile ("dsb ish"); // lfence
 
   // Timestamp 2
   asm volatile ("isb sy");
@@ -1326,13 +1327,14 @@ RUNTIME_FUNCTION(Runtime_timeWasmMemAccessM1) {
   uint64_t counters_after[10];
 
   // Timestamp 1
+  asm volatile ("dsb ish"); // lfence, prevent reordering with earlier evset traversal
   asm volatile ("isb sy");
   kpc_get_thread_counters(0, ARRAY_SIZE(counters_before), counters_before);
   asm volatile ("isb sy");
 
   // Target access
   *(volatile char *) ptr;
-  asm volatile("dsb ish"); // lfence
+  asm volatile ("dsb ish"); // lfence
 
   // Timestamp 2
   asm volatile ("isb sy");
