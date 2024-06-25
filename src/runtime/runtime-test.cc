@@ -3,9 +3,17 @@
 // found in the LICENSE file.
 
 #include <stdio.h>
-
 #include <iomanip>
 #include <memory>
+
+// More includes for Jalen's PMU code
+#include <inttypes.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <linux/ioctl.h>
 
 #include "include/v8-function.h"
 #include "include/v8-profiler.h"
@@ -41,6 +49,8 @@
 #include "src/profiler/heap-snapshot-generator.h"
 #include "src/regexp/regexp.h"
 #include "src/snapshot/snapshot.h"
+#include "src/init/v8.h"
+#include "include/v8.h"
 
 #ifdef V8_ENABLE_MAGLEV
 #include "src/maglev/maglev.h"
@@ -49,6 +59,23 @@
 #if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-engine.h"
 #endif  // V8_ENABLE_WEBASSEMBLY
+
+// Migrated from Jalen's kern/tester.h
+#define MAJOR_NUM 777
+
+#define IOCTL_CurrentEL _IOR(MAJOR_NUM, 0, uint64_t*)
+#define IOCTL_CPUECTLR_EL1 _IOR(MAJOR_NUM, 1, uint64_t*)
+#define IOCTL_PMUSERENR_EL0 _IOR(MAJOR_NUM, 2, uint64_t*)
+#define IOCTL_CPUECTLR_EL1_WRITE _IOW(MAJOR_NUM, 301, uint64_t*)
+#define IOCTL_PMUSERENR_EL0_WRITE _IOW(MAJOR_NUM, 3, uint64_t*)
+#define IOCTL_PMCR_EL0 _IOR(MAJOR_NUM, 4, uint64_t*)
+#define IOCTL_PMCR_EL0_WRITE _IOW(MAJOR_NUM, 5, uint64_t*)
+#define IOCTL_PMACTLR_EL0 _IOR(MAJOR_NUM, 6, uint64_t*)
+
+#define IOCTL_CLEAR_CACHE_L1 _IOW(MAJOR_NUM, 101, uint64_t)
+#define IOCTL_CLEAR_CACHE_L2 _IOW(MAJOR_NUM, 102, uint64_t)
+#define IOCTL_CLEAR_CACHE_L3 _IOW(MAJOR_NUM, 103, uint64_t)
+#define DEVICE_FILE_NAME "tester"
 
 namespace v8 {
 namespace internal {
@@ -1398,6 +1425,156 @@ RUNTIME_FUNCTION(Runtime_DebugPrintFloat) {
     os << std::setprecision(20) << base::bit_cast<double>(value) << std::endl;
     os.precision(precision);
   }
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+
+/*
+ Function to time loads with cycle counter.
+ Because Chrome makes anything that is not a Smi (small integer)
+ a HeapObject, this function uses Smis for simplicity.
+ However, Smis are 32 bits wide with the lowest bit being reserved,
+ so to represent a 48-bit canonical pointer, we need 2 smis.
+ The first argument is the upper 32 bits, and the second argument is
+ the lower 32 bits.  
+ */
+RUNTIME_FUNCTION(Runtime_TimeLoad) {
+  DCHECK_EQ(2, args.length());
+  HandleScope scope(isolate);
+
+  // Convert the Smis to a pointer.
+  uint32_t hi = NumberToUint32(args[0]);
+  uint32_t lo = NumberToUint32(args[1]);
+  uint64_t ptr = (static_cast<uint64_t>(hi) << 32) | lo;
+
+  // Timestamp 1
+  uint64_t start, end;
+  asm volatile("isb");
+  asm volatile("mrs %0, PMCCNTR_EL0" : "=r"(start) : :);
+  asm volatile("isb");
+
+  // Target access
+  *(volatile char *) ptr;
+  asm volatile ("dsb ish"); // lfence
+
+  // Timestamp 2
+  asm volatile("isb");
+  asm volatile("mrs %0, PMCCNTR_EL0" : "=r"(end) : :);
+  asm volatile("isb");
+
+  uint64_t dt = end - start;
+  return Smi::FromInt((int)dt);
+}
+
+/*
+Function to get the backing store address of a
+JavaScript array buffer. This is useful for flushing
+and timing buffer offsets.
+*/
+RUNTIME_FUNCTION(Runtime_AddrTypedArray) {
+  HandleScope scope(isolate);
+  DCHECK_EQ(args.length(), 1);
+
+  Handle<v8::internal::JSTypedArray> js_typed_array = args.at<v8::internal::JSTypedArray>(0);
+  double address = static_cast<double>(reinterpret_cast<uint64_t>(js_typed_array->DataPtr()));
+  
+  return *isolate->factory()->NewBigInt(address);
+}
+
+/*
+ Function to flush a virtual address from the cache.
+ Because Chrome makes anything that is not a Smi (small integer)
+ a HeapObject, this function uses Smis for simplicity.
+ However, Smis are 32 bits wide with the lowest bit being reserved,
+ so to represent a 48-bit canonical pointer, we need 2 smis.
+ The first argument is the upper 32 bits, and the second argument is
+ the lower 32 bits.  
+ */
+RUNTIME_FUNCTION(Runtime_FlushAddr) {
+  DCHECK_EQ(2, args.length());
+  HandleScope scope(isolate);
+
+  // Convert the Smis to a pointer.
+  uint32_t hi = NumberToUint32(args[0]);
+  uint32_t lo = NumberToUint32(args[1]);
+  uint64_t ptr = (static_cast<uint64_t>(hi) << 32) | lo;
+
+  asm volatile("dc civac, %0" : : "r"(ptr) : "memory");
+  asm volatile("isb");
+  asm volatile("dsb ish");
+
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+
+/*
+This enables the PMU to count cycles from PMCCNTR_EL0.
+*/
+RUNTIME_FUNCTION(Runtime_EnablePMU) {
+  HandleScope scope(isolate);
+
+  // printf("enabling PMU registers\n");
+	int device = open("/dev/tester", O_RDONLY);
+	uint64_t val = 0xdeadbeef;
+
+	ioctl(device, IOCTL_PMUSERENR_EL0, &val);
+	// printf("PMUSERENR_EL0: %lx\n", val);
+
+	val = 1 | (1 << 2);
+	// printf("write PMUSERENR_EL0: %lx\n", val);
+	ioctl(device, IOCTL_PMUSERENR_EL0_WRITE, &val);
+	ioctl(device, IOCTL_PMUSERENR_EL0, &val);
+	// printf("PMUSERENR_EL0: %lx\n", val);
+
+	// Enable PMU
+	asm volatile("isb sy\n\tmrs %0, PMCR_EL0\nisb sy\n\t" : "=r"(val));
+	// printf("PMCR_EL0: %lx\n", val);
+	val &= 0xffffffffffffff80;
+	val |= 1;
+	// printf("write PMCR_EL0: %lx\n", val);
+	asm volatile("isb sy\n\tmsr PMCR_EL0, %0\nisb sy\n\t" ::"r"(val));
+	asm volatile("isb sy\n\tmrs %0, PMCR_EL0\nisb sy\n\t" : "=r"(val));
+	// printf("PMCR_EL0: %lx\n", val);
+
+	// Set Events
+	asm volatile("isb sy\n\tmrs %0, PMCNTENSET_EL0\nisb sy\n\t" : "=r"(val));
+	// printf("PMCNTENSET_EL0: %lx\n", val);
+	val = (1 << 31) | (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3);
+	asm volatile("isb sy\n\tmsr PMCNTENSET_EL0, %0\nisb sy\n\t" ::"r"(val));
+	asm volatile("isb sy\n\tmrs %0, PMCNTENSET_EL0\nisb sy\n\t" : "=r"(val));
+	// printf("PMCNTENSET_EL0: %lx\n", val);
+
+	// printf("setting events up\n");
+	val = 0;
+	asm volatile("isb sy\n\tmsr PMSELR_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 0x03; // L1D_CACHE_REFILL
+	asm volatile("isb sy\n\tmsr PMXEVTYPER_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 1;
+	asm volatile("isb sy\n\tmsr PMSELR_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 0x17; // L2D_CACHE_REFILL
+	asm volatile("isb sy\n\tmsr PMXEVTYPER_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 2;
+	asm volatile("isb sy\n\tmsr PMSELR_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 0x2A; // L3D_CACHE_REFILL
+	asm volatile("isb sy\n\tmsr PMXEVTYPER_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 3;
+	asm volatile("isb sy\n\tmsr PMSELR_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 0x25; // L1D_TLB
+	asm volatile("isb sy\n\tmsr PMXEVTYPER_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 4;
+	asm volatile("isb sy\n\tmsr PMSELR_EL0, %0\nisb sy\n\t" ::"r"(val));
+	val = 0x34; // DTLB_WLK
+	asm volatile("isb sy\n\tmsr PMXEVTYPER_EL0, %0\nisb sy\n\t" ::"r"(val));
+
+	// Reset
+	asm volatile("isb sy\n\tmrs %0, PMCR_EL0\nisb sy\n\t" : "=r"(val));
+	// printf("PMCR_EL0: %lx\n", val);
+	val &= 0xffffffffffffff80;
+	val |= 1 | (1 << 1); // reset
+	// printf("write PMCR_EL0: %lx\n", val);
+	asm volatile("isb sy\n\tmsr PMCR_EL0, %0\nisb sy\n\t" ::"r"(val));
+	asm volatile("isb sy\n\tmrs %0, PMCR_EL0\nisb sy\n\t" : "=r"(val));
+	// printf("PMCR_EL0: %lx\n", val);
+
+	close(device);
   return ReadOnlyRoots(isolate).undefined_value();
 }
 

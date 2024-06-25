@@ -517,6 +517,10 @@ namespace internal {
   F(DebugPrintFloat, 5, 1)                    \
   F(DebugPrintPtr, 1, 1)                      \
   F(DebugPrintWord, 5, 1)                     \
+  F(TimeLoad, 2, 1)                           \
+  F(AddrTypedArray, -1, 1)                    \
+  F(FlushAddr, 2, 1)                          \
+  F(EnablePMU, 0, 1)                          \
   F(DebugTrace, 0, 1)                         \
   F(DeoptimizeFunction, 1, 1)                 \
   F(DisableOptimizationFinalization, 0, 1)    \
