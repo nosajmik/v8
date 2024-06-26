@@ -1437,6 +1437,8 @@ RUNTIME_FUNCTION(Runtime_DebugPrintFloat) {
  The first argument is the upper 32 bits, and the second argument is
  the lower 32 bits.  
  */
+
+#ifdef __aarch64__
 RUNTIME_FUNCTION(Runtime_TimeLoad) {
   DCHECK_EQ(2, args.length());
   HandleScope scope(isolate);
@@ -1464,6 +1466,11 @@ RUNTIME_FUNCTION(Runtime_TimeLoad) {
   uint64_t dt = end - start;
   return Smi::FromInt((int)dt);
 }
+#else
+RUNTIME_FUNCTION(Runtime_TimeLoad) {
+  return Smi::FromInt(0);
+}
+#endif
 
 /*
 Function to get the backing store address of a
@@ -1489,6 +1496,7 @@ RUNTIME_FUNCTION(Runtime_AddrTypedArray) {
  The first argument is the upper 32 bits, and the second argument is
  the lower 32 bits.  
  */
+#ifdef __aarch64__
 RUNTIME_FUNCTION(Runtime_FlushAddr) {
   DCHECK_EQ(2, args.length());
   HandleScope scope(isolate);
@@ -1504,10 +1512,16 @@ RUNTIME_FUNCTION(Runtime_FlushAddr) {
 
   return ReadOnlyRoots(isolate).undefined_value();
 }
+#else
+RUNTIME_FUNCTION(Runtime_FlushAddr) {
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+#endif
 
 /*
 This enables the PMU to count cycles from PMCCNTR_EL0.
 */
+#ifdef __aarch64__
 RUNTIME_FUNCTION(Runtime_EnablePMU) {
   HandleScope scope(isolate);
 
@@ -1577,6 +1591,11 @@ RUNTIME_FUNCTION(Runtime_EnablePMU) {
 	close(device);
   return ReadOnlyRoots(isolate).undefined_value();
 }
+#else 
+RUNTIME_FUNCTION(Runtime_EnablePMU) {
+  return ReadOnlyRoots(isolate).undefined_value();
+}
+#endif
 
 RUNTIME_FUNCTION(Runtime_PrintWithNameForAssert) {
   SealHandleScope shs(isolate);
