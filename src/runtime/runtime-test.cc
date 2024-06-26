@@ -1297,7 +1297,7 @@ RUNTIME_FUNCTION(Runtime_TakeHeapSnapshot) {
   return ReadOnlyRoots(isolate).undefined_value();
 }
 
-static void DebugPrintImpl(Tagged<MaybeObject> maybe_object, std::ostream& os) {
+static void DebugPrintImpl(Tagged<MaybeObject> maybe_object, std::ostringstream& os) {
   if (maybe_object.IsCleared()) {
     os << "[weak cleared]";
   } else {
@@ -1329,26 +1329,21 @@ RUNTIME_FUNCTION(Runtime_DebugPrint) {
     return ReadOnlyRoots(isolate).undefined_value();
   }
 
-  // This is exposed to tests / fuzzers; handle variable arguments gracefully.
-  std::unique_ptr<std::ostream> output_stream(new StdoutStream());
-  if (args.length() >= 2) {
-    // Args: object, stream.
-    if (IsSmi(args[1])) {
-      int output_int = Cast<Smi>(args[1]).value();
-      if (output_int == fileno(stderr)) {
-        output_stream.reset(new StderrStream());
-      }
-    }
-  }
+  // nosajmik: make debugprint output available to JS
+  // by first feeding it to a stringstream, instead of stdoutstream
+  std::unique_ptr<std::ostringstream> output_stream = std::make_unique<std::ostringstream>();
 
   Tagged<MaybeObject> maybe_object(*args.address_of_arg_at(0));
   DebugPrintImpl(maybe_object, *output_stream);
-  return args[0];
+
+  // Convert the resulting char[] to a JS string, and return it
+  std::string str = output_stream->str();
+  return *isolate->factory()->NewStringFromAsciiChecked(str.c_str());
 }
 
 RUNTIME_FUNCTION(Runtime_DebugPrintPtr) {
   SealHandleScope shs(isolate);
-  StdoutStream os;
+  std::ostringstream os;
   if (args.length() != 1) {
     return CrashUnlessFuzzing(isolate);
   }
@@ -1471,21 +1466,6 @@ RUNTIME_FUNCTION(Runtime_TimeLoad) {
   return Smi::FromInt(0);
 }
 #endif
-
-/*
-Function to get the backing store address of a
-JavaScript array buffer. This is useful for flushing
-and timing buffer offsets.
-*/
-RUNTIME_FUNCTION(Runtime_AddrTypedArray) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(args.length(), 1);
-
-  Handle<v8::internal::JSTypedArray> js_typed_array = args.at<v8::internal::JSTypedArray>(0);
-  double address = static_cast<double>(reinterpret_cast<uint64_t>(js_typed_array->DataPtr()));
-  
-  return *isolate->factory()->NewBigInt(address);
-}
 
 /*
  Function to flush a virtual address from the cache.
